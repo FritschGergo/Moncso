@@ -1,0 +1,101 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile information and role.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "UserCourse": {
+      "title": "User Course Access",
+      "description": "Records a user's access and progress in a specific course.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "hasAccess": { "type": "boolean" },
+        "progress": { "type": "number" },
+        "enrolledAt": { "type": "string", "format": "date-time" },
+        "lastAccessedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "courseId", "hasAccess", "progress", "enrolledAt"]
+    },
+    "Homework": {
+      "title": "Homework Submission",
+      "description": "Information about a homework submission by a student.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "lessonId": { "type": "string" },
+        "fileUrl": { "type": "string", "format": "uri" },
+        "fileName": { "type": "string" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "feedback": { "type": "string" }
+      },
+      "required": ["userId", "courseId", "lessonId", "fileUrl", "fileName", "submittedAt", "status"]
+    },
+    "Course": {
+      "title": "Course Information",
+      "description": "General details about a dynamic course.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "string" },
+        "promoVideoUrl": { "type": "string", "format": "uri" },
+        "popular": { "type": "boolean" },
+        "features": { "type": "array", "items": { "type": "string" } },
+        "lessonCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "description", "lessonCount"]
+    },
+    "Lesson": {
+      "title": "Course Lesson",
+      "description": "Details of an individual lesson within a course.",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "order": { "type": "number" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "videoUrl": { "type": "string", "format": "uri" },
+        "homeworkRequired": { "type": "boolean" },
+        "homeworkDescription": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["courseId", "order", "title", "videoUrl", "homeworkRequired"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles."
+    },
+    "/users/{userId}/courses/{courseId}": {
+      "schema": "UserCourse",
+      "description": "Course enrollments for a specific user."
+    },
+    "/homeworks/{homeworkId}": {
+      "schema": "Homework",
+      "description": "Student homework submissions."
+    },
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Course information."
+    },
+    "/lessons/{lessonId}": {
+      "schema": "Lesson",
+      "description": "Lesson data."
+    }
+  }
+}

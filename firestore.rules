@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Global Safety Net ---
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+             (request.auth.token.email == 'admin@admin.com' || 
+              (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'student') == 'admin'));
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Validation Blueprints ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'role', 'createdAt']) &&
+             data.email == request.auth.token.email &&
+             (data.role == 'student' || (data.role == 'admin' && request.auth.token.email == 'admin@admin.com')) &&
+             data.createdAt == request.time;
+    }
+
+    function isValidHomework(data) {
+      return data.keys().hasAll(['userId', 'courseId', 'lessonId', 'fileUrl', 'fileName', 'submittedAt', 'status']) &&
+             data.userId == request.auth.uid &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             (data.submittedAt == request.time || data.submittedAt is timestamp);
+    }
+
+    // --- Collection Rules ---
+
+    // USERS
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if (isOwner(userId) && 
+                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'role', 'createdAt']) &&
+                      incoming().role == existing().role && 
+                      incoming().createdAt == existing().createdAt
+                     ) || isAdmin();
+
+      // USER COURSES (Subcollection)
+      match /courses/{courseId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin() || (
+          isOwner(userId) && 
+          incoming().diff(existing()).affectedKeys().hasOnly(['progress', 'lastAccessedAt'])
+        );
+      }
+    }
+
+    // HOMEWORKS
+    match /homeworks/{homeworkId} {
+      allow get: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+      allow list: if isSignedIn() && (isAdmin() || (resource.data.userId == request.auth.uid));
+      
+      allow create: if isSignedIn() && isValidHomework(incoming()) && incoming().status == 'pending';
+      allow update: if isAdmin() || (
+        isOwner(existing().userId) && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['fileUrl', 'fileName', 'submittedAt']) &&
+        incoming().status == existing().status
+      );
+      allow delete: if isAdmin();
+    }
+
+    // COURSES
+    match /courses/{courseId} {
+      allow read: if true; // Publicly viewable for sales pages
+      allow write: if isAdmin();
+    }
+
+    // LESSONS
+    match /lessons/{lessonId} {
+      allow read: if isSignedIn(); // Logged in users can see lesson metadata
+      allow write: if isAdmin();
+    }
+  }
+}

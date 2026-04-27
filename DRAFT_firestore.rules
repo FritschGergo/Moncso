@@ -1,0 +1,113 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Global Denial ---
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Validation Helpers ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'createdAt']) &&
+             data.keys().size() == 5 && // Including displayName which might be optional in required list but present in data
+             data.uid == request.auth.uid &&
+             data.email is string && data.email.size() <= 256 &&
+             data.displayName is string && data.displayName.size() <= 256 &&
+             data.role in ['student', 'admin'] &&
+             data.createdAt == request.time;
+    }
+
+    function isValidUserUpdate(data) {
+      return data.uid == existing().uid &&
+             data.email == existing().email &&
+             (data.role == existing().role || isAdmin()) &&
+             data.createdAt == existing().createdAt;
+    }
+
+    function isValidHomework(data) {
+      return data.keys().hasAll(['userId', 'courseId', 'lessonId', 'fileUrl', 'fileName', 'submittedAt', 'status']) &&
+             data.userId == request.auth.uid &&
+             data.courseId is string && data.courseId.size() <= 128 &&
+             data.lessonId is string && data.lessonId.size() <= 128 &&
+             data.fileUrl is string && data.fileUrl.size() <= 2048 &&
+             data.fileName is string && data.fileName.size() <= 256 &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             data.submittedAt == request.time;
+    }
+
+    // --- Collections ---
+
+    // USERS
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUserUpdate(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'createdAt', 'email', 'uid']) // Tightened in logic
+      ) || isAdmin();
+      allow delete: if isAdmin();
+
+      // USER COURSES SUBCOLLECTION
+      match /courses/{courseId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isAdmin();
+        // Students can update their own progress?
+        // In src/lib/db.ts: updateUserCourseProgress uses updateDoc on users/${userId}/courses/${courseId}
+        allow update: if isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['progress', 'lastAccessedAt']);
+      }
+    }
+
+    // HOMEWORKS
+    match /homeworks/{homeworkId} {
+      allow get: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+      allow list: if isSignedIn() && (isAdmin() || (request.query.limit <= 100 && resource.data.userId == request.auth.uid));
+      
+      allow create: if isSignedIn() && isValidHomework(incoming());
+      allow update: if isAdmin() || (
+        isOwner(existing().userId) && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['fileUrl', 'fileName', 'submittedAt']) &&
+        incoming().status == existing().status // Students cannot change status
+      );
+      allow delete: if isAdmin();
+    }
+
+    // COURSES
+    match /courses/{courseId} {
+      allow read: if isSignedIn(); // Publicly viewable by members
+      allow write: if isAdmin();
+    }
+
+    // LESSONS
+    match /lessons/{lessonId} {
+      allow read: if isSignedIn(); // Access checked by app logic (isLessonLocked)
+      allow write: if isAdmin();
+    }
+  }
+}
